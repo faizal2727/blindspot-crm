@@ -34,7 +34,9 @@ const snakeObj = (obj) => {
     if (k === 'id') continue;
     let v = obj[k];
     // FK: empty string -> null
-    if ((k === 'customerId' || k === 'leadId' || k === 'quoteId' || k === 'orderId') && v === '') v = null;
+    if ((k === 'customerId' || k === 'leadId' || k === 'quoteId' || k === 'orderId' ||
+         k === 'measurementWorkerId' || k === 'cuttingWorkerId' ||
+         k === 'assemblingWorkerId' || k === 'deliveryWorkerId') && v === '') v = null;
     out[toSnake(k)] = v;
   }
   return out;

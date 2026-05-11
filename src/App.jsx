@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Search, X, Edit2, Trash2, Calendar, Package, Users, TrendingUp, CheckCircle2,
   ChevronRight, Menu, Home, Loader2, ScrollText, CreditCard, BarChart3, Download,
-  Boxes, Settings as SettingsIcon, AlertTriangle, RefreshCw,
+  Boxes, Settings as SettingsIcon, AlertTriangle, RefreshCw, Hammer, UserCog,
 } from 'lucide-react';
 import './styles.css';
 import { api } from './api';
@@ -15,12 +15,17 @@ import {
   CustomerForm, CustomerDetail, LeadForm, QuoteForm, QuoteDetail,
   OrderForm, PaymentForm, InventoryForm,
 } from './forms';
+import {
+  WorkersView, ProductionView, WorkerForm, ProductionJobForm,
+  STAGES, currentStage, isOverdue,
+} from './production';
 
 const RESOURCES = ['customers', 'leads', 'quotes', 'orders', 'payments', 'inventory'];
 
 export default function App() {
   const [data, setData] = useState({
     customers: [], leads: [], quotes: [], orders: [], payments: [], inventory: [],
+    workers: [], productionJobs: [],
     settings: null,
   });
   const [view, setView] = useState('dashboard');
@@ -45,7 +50,13 @@ export default function App() {
         api.list('inventory'),
         api.getSettings(),
       ]);
-      setData({ customers, leads, quotes, orders, payments, inventory, settings });
+      // Workers + production jobs may not exist yet if the migration hasn't been run.
+      // Load them separately and tolerate failures with empty arrays.
+      let workers = [];
+      let productionJobs = [];
+      try { workers = await api.list('workers'); } catch (e) { console.warn('workers table not ready:', e.message); }
+      try { productionJobs = await api.list('production_jobs'); } catch (e) { console.warn('production_jobs table not ready:', e.message); }
+      setData({ customers, leads, quotes, orders, payments, inventory, workers, productionJobs, settings });
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -134,6 +145,8 @@ export default function App() {
       ))}
       <div className="nav-section">Operations</div>
       {[
+        { id: 'production', label: 'Production', icon: Hammer },
+        { id: 'workers', label: 'Team & Karigars', icon: UserCog },
         { id: 'inventory', label: 'Inventory', icon: Boxes },
         { id: 'reports', label: 'Reports', icon: BarChart3 },
         { id: 'settings', label: 'Settings', icon: SettingsIcon },
@@ -159,6 +172,16 @@ export default function App() {
     const wonThisMonth = data.leads.filter(l => l.stage === 'Won' && new Date(l.createdAt) > new Date(Date.now() - 86400000 * 30)).reduce((s, l) => s + num(l.value), 0);
     const outstanding = data.orders.reduce((s, o) => s + num(o.amount) - num(o.paid), 0);
     const upcoming = data.leads.filter(l => l.nextDate && new Date(l.nextDate) < new Date(Date.now() + 86400000 * 7) && !['Won', 'Lost'].includes(l.stage)).sort((a, b) => new Date(a.nextDate) - new Date(b.nextDate));
+
+    // Overdue production stages — surface on dashboard
+    const overdueJobs = data.productionJobs
+      .map(j => {
+        const idx = currentStage(j);
+        if (idx >= STAGES.length) return null;
+        if (!isOverdue(j, idx)) return null;
+        return { job: j, stage: STAGES[idx], stageIdx: idx };
+      })
+      .filter(Boolean);
 
     return (
       <div className="fade-in">
@@ -190,6 +213,16 @@ export default function App() {
             <div className="stat-meta">{data.customers.filter(c => new Date(c.createdAt) > new Date(Date.now() - 86400000 * 30)).length} added recently</div>
           </div>
         </div>
+
+        {overdueJobs.length > 0 && (
+          <div style={{ padding: '14px 18px', background: '#fbf0ee', border: '1px solid #e8d8d4', borderRadius: 6, marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+              <AlertTriangle size={16} color="#a85b52" />
+              <span><strong>{overdueJobs.length} production stage{overdueJobs.length > 1 ? 's' : ''} overdue</strong> — {overdueJobs.slice(0, 3).map(o => `${o.stage.label} for ${data.orders.find(or => or.id === o.job.orderId)?.number}`).join(', ')}{overdueJobs.length > 3 ? '…' : ''}</span>
+            </div>
+            <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => setView('production')}>Open production →</button>
+          </div>
+        )}
         <div className="detail-grid">
           <div className="card">
             <div style={{ padding: '18px 22px', borderBottom: '1px solid #ebe3cd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -485,6 +518,22 @@ export default function App() {
                             <WaIcon />
                           </a>
                         )}
+                        {(() => {
+                          const job = data.productionJobs.find(j => j.orderId === o.id);
+                          return (
+                            <button
+                              className="btn-icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setModal({ type: 'productionJob', data: job || { orderId: o.id } });
+                              }}
+                              title={job ? 'Open production job' : 'Start production'}
+                              style={{ color: job ? '#8b6914' : '#8a7d5e' }}
+                            >
+                              <Hammer size={14} />
+                            </button>
+                          );
+                        })()}
                         <button className="btn-icon" onClick={(e) => { e.stopPropagation(); remove('orders', o.id, o.number); }}><Trash2 size={14} /></button>
                       </td>
                     </tr>
@@ -836,6 +885,49 @@ export default function App() {
       }
     }} />;
     if (m.type === 'inventory') return <InventoryForm initial={m.data} busy={savingModal} onClose={close} onSave={(it) => save('inventory', it)} />;
+    if (m.type === 'worker') return <WorkerForm initial={m.data} busy={savingModal} onClose={close} onSave={(w) => save('workers', w)} />;
+    if (m.type === 'productionJob') return <ProductionJobForm
+      initial={m.data}
+      orders={data.orders}
+      customers={data.customers}
+      workers={data.workers}
+      settings={data.settings}
+      busy={savingModal}
+      onClose={close}
+      onSave={async (j) => {
+        // Save the job, then auto-bump the order's status based on which stage we're at
+        setSavingModal(true);
+        try {
+          let saved;
+          if (j.id) saved = await api.update('production_jobs', j.id, j);
+          else saved = await api.create('production_jobs', j);
+
+          // Update order status based on stage progress
+          if (saved.orderId) {
+            const stageIdx = currentStage(saved);
+            const statusMap = {
+              0: 'Pending',      // Measurement
+              1: 'In Production', // Cutting
+              2: 'In Production', // Assembling
+              3: 'Ready',        // Delivery
+              4: 'Delivered',    // All done
+            };
+            const newStatus = statusMap[stageIdx];
+            const order = data.orders.find(o => o.id === saved.orderId);
+            if (order && order.status !== newStatus) {
+              await api.update('orders', saved.orderId, { status: newStatus });
+            }
+          }
+          await reload(true);
+          close();
+          showToast('Saved');
+        } catch (err) {
+          showToast(err.message, 'error');
+        } finally {
+          setSavingModal(false);
+        }
+      }}
+    />;
     return null;
   };
 
@@ -852,6 +944,8 @@ export default function App() {
         {view === 'quotes' && <Quotes />}
         {view === 'orders' && <Orders />}
         {view === 'payments' && <Payments />}
+        {view === 'production' && <ProductionView data={data} settings={data.settings} setModal={setModal} search={search} setSearch={setSearch} />}
+        {view === 'workers' && <WorkersView data={data} setModal={setModal} remove={remove} search={search} setSearch={setSearch} />}
         {view === 'inventory' && <Inventory />}
         {view === 'reports' && <Reports />}
         {view === 'settings' && <SettingsView />}

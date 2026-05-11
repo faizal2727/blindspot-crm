@@ -128,6 +128,55 @@ tr.clickable:hover { background: #faf7f0; }
 .empty { text-align: center; padding: 60px 20px; color: #8a7d5e; }
 .empty-icon { opacity: 0.4; margin-bottom: 12px; }
 
+/* Kanban board */
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.kanban-col {
+  background: #fff;
+  border: 1px solid #ebe3cd;
+  border-radius: 6px;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+.kanban-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid #ebe3cd;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #faf7f0;
+  border-radius: 6px 6px 0 0;
+}
+.kanban-body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 100px;
+}
+.kanban-card {
+  background: #faf7f0;
+  border: 1px solid #ebe3cd;
+  border-radius: 4px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.kanban-card:hover {
+  background: #fff;
+  border-color: #c9a961;
+  box-shadow: 0 2px 6px rgba(42, 37, 32, 0.06);
+}
+.kanban-card.overdue {
+  border-left: 3px solid #a85b52;
+  background: #fbf0ee;
+}
+
 /* Toast */
 .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 18px; background: #2a2520; color: #f0e6c8; border-radius: 6px; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,0.2); z-index: 200; animation: slideUp 0.2s; }
 .toast.error { background: #a85b52; }
@@ -157,4 +206,5 @@ tr.clickable:hover { background: #faf7f0; }
   th, td { padding: 10px 12px; }
   .hide-mobile { display: none; }
   .modal { padding: 20px; }
+  .kanban { grid-template-columns: repeat(4, 240px); overflow-x: auto; gap: 8px; padding-bottom: 8px; }
 }
