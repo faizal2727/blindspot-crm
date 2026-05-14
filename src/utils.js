@@ -54,3 +54,52 @@ export const waTemplates = {
 };
 
 export const num = (v) => Number(v) || 0;
+
+// ============ MEASUREMENT HELPERS ============
+// We store dimensions as total inches (integer) on each line item.
+// UI shows them as feet+inches for human readability.
+
+export const toInches = (ft, inch) => num(ft) * 12 + num(inch);
+
+export const fromInches = (totalInches) => {
+  const total = num(totalInches);
+  if (total <= 0) return { ft: 0, inch: 0 };
+  return { ft: Math.floor(total / 12), inch: total % 12 };
+};
+
+// Format like 6'2"
+export const formatDim = (totalInches) => {
+  const t = num(totalInches);
+  if (t <= 0) return '';
+  const { ft, inch } = fromInches(t);
+  return inch === 0 ? `${ft}'` : `${ft}'${inch}"`;
+};
+
+// Format full size like 6'2" × 4'8"
+export const formatSize = (widthIn, heightIn) => {
+  const w = num(widthIn), h = num(heightIn);
+  if (w <= 0 || h <= 0) return '';
+  return `${formatDim(w)} × ${formatDim(h)}`;
+};
+
+// Square feet from inches: (w × h) / 144
+export const sqft = (widthIn, heightIn) => {
+  const w = num(widthIn), h = num(heightIn);
+  if (w <= 0 || h <= 0) return 0;
+  return (w * h) / 144;
+};
+
+// Compute the line amount based on pricing mode.
+//   mode='sqft' → qty × rate × area_per_piece
+//   mode='flat' (or undefined) → qty × rate
+export const lineAmount = (item) => {
+  const qty = num(item.qty);
+  const rate = num(item.rate);
+  if (item.pricingMode === 'sqft') {
+    const area = sqft(item.widthIn, item.heightIn);
+    return qty * rate * area;
+  }
+  return qty * rate;
+};
+
+export const lineAmountWithGst = (item) => lineAmount(item) * (1 + num(item.gst) / 100);

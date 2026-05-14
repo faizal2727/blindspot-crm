@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, X, Download, CheckCircle2 } from 'lucide-react';
 import { ModalWrap, WaIcon } from './components';
-import { formatINR, formatDate, tsToDateInput, dateInputToISO, num, waLink, waTemplates } from './utils';
+import { formatINR, formatDate, tsToDateInput, dateInputToISO, num, waLink, waTemplates, fromInches, toInches, formatSize, sqft, lineAmount, lineAmountWithGst } from './utils';
 
 export function CustomerForm({ initial, onSave, onClose, busy }) {
   const [f, setF] = useState(initial);
@@ -124,8 +124,13 @@ export function QuoteForm({ initial, customers, onSave, onClose, busy }) {
   const [f, setF] = useState({ ...initial, items: initial.items || [{ desc: '', qty: 1, rate: 0, gst: 18 }] });
   const upd = (k, v) => setF(p => ({ ...p, [k]: v }));
   const updItem = (i, k, v) => upd('items', f.items.map((x, idx) => idx === i ? { ...x, [k]: v } : x));
-  const total = f.items?.reduce((s, i) => s + num(i.qty) * num(i.rate) * (1 + num(i.gst) / 100), 0) || 0;
-  const subtotal = f.items?.reduce((s, i) => s + num(i.qty) * num(i.rate), 0) || 0;
+
+  // Sum line amounts using the pricing-mode-aware calculator
+  const subtotal = (f.items || []).reduce((s, it) => s + lineAmount(it), 0);
+  const total    = (f.items || []).reduce((s, it) => s + lineAmountWithGst(it), 0);
+
+  // Local helper to update both inches halves of a dimension
+  const setDim = (i, field, ft, inch) => updItem(i, field, toInches(ft, inch));
 
   return (
     <ModalWrap title={f.id ? 'Edit Quote' : 'New Quote'} sub={f.number} onClose={onClose}>
@@ -146,19 +151,95 @@ export function QuoteForm({ initial, customers, onSave, onClose, busy }) {
         <div className="field"><label>Date</label><input type="date" value={tsToDateInput(f.date)} onChange={e => upd('date', dateInputToISO(e.target.value))} /></div>
         <div className="field"><label>Validity (days)</label><input type="number" value={f.validity || 30} onChange={e => upd('validity', +e.target.value)} /></div>
       </div>
+
       <div className="field" style={{ marginTop: 12 }}>
         <label style={{ marginBottom: 8 }}>Line Items</label>
-        {f.items?.map((it, i) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 60px 90px 60px 30px', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-            <input placeholder="Description" value={it.desc} onChange={e => updItem(i, 'desc', e.target.value)} style={{ padding: 8, border: '1px solid #e6dfca', borderRadius: 4, fontSize: 12 }} />
-            <input type="number" placeholder="Qty" value={it.qty} onChange={e => updItem(i, 'qty', +e.target.value)} style={{ padding: 8, border: '1px solid #e6dfca', borderRadius: 4, fontSize: 12 }} />
-            <input type="number" placeholder="Rate" value={it.rate} onChange={e => updItem(i, 'rate', +e.target.value)} style={{ padding: 8, border: '1px solid #e6dfca', borderRadius: 4, fontSize: 12 }} />
-            <input type="number" placeholder="GST%" value={it.gst} onChange={e => updItem(i, 'gst', +e.target.value)} style={{ padding: 8, border: '1px solid #e6dfca', borderRadius: 4, fontSize: 12 }} />
-            <button className="btn-icon" onClick={() => upd('items', f.items.filter((_, idx) => idx !== i))}><X size={14} /></button>
-          </div>
-        ))}
-        <button className="btn btn-secondary" style={{ marginTop: 4, fontSize: 12, padding: '6px 12px' }} onClick={() => upd('items', [...(f.items || []), { desc: '', qty: 1, rate: 0, gst: 18 }])}><Plus size={12} /> Add line</button>
+        {f.items?.map((it, i) => {
+          const w = fromInches(it.widthIn);
+          const h = fromInches(it.heightIn);
+          const area = sqft(it.widthIn, it.heightIn);
+          const lineTotal = lineAmount(it);
+          const mode = it.pricingMode || 'flat';
+          return (
+            <div key={i} className="line-item-card">
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <input
+                  placeholder="Description (e.g. Roller Blind — Living Room)"
+                  value={it.desc || ''}
+                  onChange={e => updItem(i, 'desc', e.target.value)}
+                  style={{ flex: 1, padding: 8, border: '1px solid #e6dfca', borderRadius: 4, fontSize: 12 }}
+                />
+                <button className="btn-icon" onClick={() => upd('items', f.items.filter((_, idx) => idx !== i))} style={{ marginTop: 2 }}>
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Measurements row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
+                <div>
+                  <div className="dim-label">Width</div>
+                  <div className="dim-row">
+                    <input type="number" min="0" value={w.ft || ''} onChange={e => setDim(i, 'widthIn', e.target.value, w.inch)} placeholder="ft" />
+                    <span className="dim-sep">'</span>
+                    <input type="number" min="0" max="11" value={w.inch || ''} onChange={e => setDim(i, 'widthIn', w.ft, e.target.value)} placeholder="in" />
+                    <span className="dim-sep">"</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="dim-label">Height</div>
+                  <div className="dim-row">
+                    <input type="number" min="0" value={h.ft || ''} onChange={e => setDim(i, 'heightIn', e.target.value, h.inch)} placeholder="ft" />
+                    <span className="dim-sep">'</span>
+                    <input type="number" min="0" max="11" value={h.inch || ''} onChange={e => setDim(i, 'heightIn', h.ft, e.target.value)} placeholder="in" />
+                    <span className="dim-sep">"</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Pricing row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '90px 70px 90px 70px 1fr', gap: 6, marginTop: 8, alignItems: 'end' }}>
+                <div>
+                  <div className="dim-label">Pricing</div>
+                  <select value={mode} onChange={e => updItem(i, 'pricingMode', e.target.value)} style={{ padding: 6, border: '1px solid #e6dfca', borderRadius: 4, fontSize: 12, width: '100%' }}>
+                    <option value="flat">Flat</option>
+                    <option value="sqft">Per sqft</option>
+                  </select>
+                </div>
+                <div>
+                  <div className="dim-label">Qty</div>
+                  <input type="number" value={it.qty || ''} onChange={e => updItem(i, 'qty', +e.target.value)} placeholder="1" style={{ padding: 6, border: '1px solid #e6dfca', borderRadius: 4, fontSize: 12, width: '100%' }} />
+                </div>
+                <div>
+                  <div className="dim-label">Rate {mode === 'sqft' ? '/ sqft' : ''}</div>
+                  <input type="number" value={it.rate || ''} onChange={e => updItem(i, 'rate', +e.target.value)} placeholder="0" style={{ padding: 6, border: '1px solid #e6dfca', borderRadius: 4, fontSize: 12, width: '100%' }} />
+                </div>
+                <div>
+                  <div className="dim-label">GST%</div>
+                  <input type="number" value={it.gst || ''} onChange={e => updItem(i, 'gst', +e.target.value)} placeholder="18" style={{ padding: 6, border: '1px solid #e6dfca', borderRadius: 4, fontSize: 12, width: '100%' }} />
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div className="dim-label">Amount</div>
+                  <div className="mono" style={{ fontWeight: 600, padding: '6px 0', fontSize: 13 }}>{formatINR(Math.round(lineTotal))}</div>
+                </div>
+              </div>
+
+              {mode === 'sqft' && area > 0 && (
+                <div style={{ fontSize: 11, color: '#8a7d5e', marginTop: 4, fontStyle: 'italic' }}>
+                  Area: {area.toFixed(2)} sqft per piece × {num(it.qty)} = {(area * num(it.qty)).toFixed(2)} sqft total
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <button
+          className="btn btn-secondary"
+          style={{ marginTop: 6, fontSize: 12, padding: '6px 12px' }}
+          onClick={() => upd('items', [...(f.items || []), { desc: '', qty: 1, rate: 0, gst: 18, widthIn: 0, heightIn: 0, pricingMode: 'sqft' }])}
+        >
+          <Plus size={12} /> Add line
+        </button>
       </div>
+
       <div style={{ padding: 14, background: '#fff', borderRadius: 6, border: '1px solid #ebe3cd', marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}><span>Subtotal</span><span className="mono">{formatINR(Math.round(subtotal))}</span></div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 8, color: '#6b5d3f' }}><span>GST</span><span className="mono">{formatINR(Math.round(total - subtotal))}</span></div>
@@ -175,13 +256,25 @@ export function QuoteForm({ initial, customers, onSave, onClose, busy }) {
 }
 
 export function QuoteDetail({ quote, customer, settings, onClose, onEdit }) {
-  const subtotal = quote.items.reduce((s, i) => s + num(i.qty) * num(i.rate), 0);
-  const total = quote.items.reduce((s, i) => s + num(i.qty) * num(i.rate) * (1 + num(i.gst) / 100), 0);
+  const subtotal = quote.items.reduce((s, i) => s + lineAmount(i), 0);
+  const total    = quote.items.reduce((s, i) => s + lineAmountWithGst(i), 0);
   const gstTotal = total - subtotal;
 
   const printQuote = () => {
     const win = window.open('', '_blank');
-    const itemsHtml = quote.items.map((it, i) => `<tr><td>${i+1}</td><td>${it.desc}</td><td class="right">${it.qty}</td><td class="right">${formatINR(it.rate)}</td><td class="right">${it.gst}%</td><td class="right">${formatINR(num(it.qty) * num(it.rate))}</td></tr>`).join('');
+    const itemsHtml = quote.items.map((it, i) => {
+      const size = formatSize(it.widthIn, it.heightIn);
+      const amt = lineAmount(it);
+      const rateLabel = it.pricingMode === 'sqft' ? `${formatINR(it.rate)}/sqft` : formatINR(it.rate);
+      return `<tr>
+        <td>${i+1}</td>
+        <td>${it.desc || ''}${size ? `<div style="font-size:10px;color:#6b5d3f;margin-top:2px;">${size}${it.pricingMode === 'sqft' ? ` · ${sqft(it.widthIn, it.heightIn).toFixed(2)} sqft` : ''}</div>` : ''}</td>
+        <td class="right">${it.qty}</td>
+        <td class="right">${rateLabel}</td>
+        <td class="right">${it.gst}%</td>
+        <td class="right">${formatINR(Math.round(amt))}</td>
+      </tr>`;
+    }).join('');
     const html = `<!DOCTYPE html><html><head><title>${quote.number}</title>
       <style>
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
@@ -254,9 +347,25 @@ export function QuoteDetail({ quote, customer, settings, onClose, onEdit }) {
       <table style={{ marginTop: 16 }}>
         <thead><tr><th>Item</th><th style={{textAlign:'right'}}>Qty</th><th style={{textAlign:'right'}}>Rate</th><th style={{textAlign:'right'}}>Amount</th></tr></thead>
         <tbody>
-          {quote.items.map((it, i) => (
-            <tr key={i}><td>{it.desc}</td><td style={{textAlign:'right'}} className="mono">{it.qty}</td><td style={{textAlign:'right'}} className="mono">{formatINR(it.rate)}</td><td style={{textAlign:'right'}} className="mono">{formatINR(num(it.qty) * num(it.rate))}</td></tr>
-          ))}
+          {quote.items.map((it, i) => {
+            const size = formatSize(it.widthIn, it.heightIn);
+            const rateLabel = it.pricingMode === 'sqft' ? `${formatINR(it.rate)}/sqft` : formatINR(it.rate);
+            return (
+              <tr key={i}>
+                <td>
+                  <div>{it.desc}</div>
+                  {size && (
+                    <div style={{ fontSize: 11, color: '#6b5d3f', marginTop: 2 }}>
+                      {size}{it.pricingMode === 'sqft' && ` · ${sqft(it.widthIn, it.heightIn).toFixed(2)} sqft`}
+                    </div>
+                  )}
+                </td>
+                <td style={{textAlign:'right'}} className="mono">{it.qty}</td>
+                <td style={{textAlign:'right'}} className="mono">{rateLabel}</td>
+                <td style={{textAlign:'right'}} className="mono">{formatINR(Math.round(lineAmount(it)))}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       <div style={{ padding: 14, background: '#fff', borderRadius: 6, border: '1px solid #ebe3cd', marginTop: 16 }}>

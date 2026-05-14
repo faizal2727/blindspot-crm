@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Plus, Search, X, Edit2, Trash2, CheckCircle2, Circle, AlertTriangle, Users, Hammer, Calendar } from 'lucide-react';
 import { ModalWrap, WaIcon, Pill } from './components';
-import { formatINR, formatDate, formatDateShort, tsToDateInput, dateInputToISO, waLink, num } from './utils';
+import { formatINR, formatDate, formatDateShort, tsToDateInput, dateInputToISO, waLink, num, formatSize } from './utils';
 
 // Four stages, in order. Each maps to columns in the DB (e.g. measurement_worker_id, measurement_due, etc.)
 export const STAGES = [
@@ -31,8 +31,13 @@ export const isOverdue = (job, stageIdx) => {
 
 // WhatsApp message templates for production
 const waProdTemplates = {
-  assignment: (worker, job, order, customer, stage, company) =>
-    `Hello ${worker.name},\n\nWork assignment — *${stage.label}*\n\nOrder: ${order.number}\nCustomer: ${customer?.name || '—'}\nDue: ${formatDate(job[`${stage.key}Due`]) || 'ASAP'}\n${job[`${stage.key}Notes`] ? '\nNotes: ' + job[`${stage.key}Notes`] : ''}\n\nPlease confirm receipt and let us know if you have any questions.\n\nRegards,\n${company}`,
+  assignment: (worker, job, order, customer, stage, company, items) => {
+    const dims = (items || [])
+      .filter(it => num(it.widthIn) > 0 && num(it.heightIn) > 0)
+      .map((it, i) => `${i + 1}. ${it.desc || 'Item'}: ${formatSize(it.widthIn, it.heightIn)}${num(it.qty) > 1 ? ` × ${it.qty}` : ''}`)
+      .join('\n');
+    return `Hello ${worker.name},\n\nWork assignment — *${stage.label}*\n\nOrder: ${order.number}\nCustomer: ${customer?.name || '—'}\nDue: ${formatDate(job[`${stage.key}Due`]) || 'ASAP'}\n${dims ? '\nDimensions:\n' + dims + '\n' : ''}${job[`${stage.key}Notes`] ? '\nNotes: ' + job[`${stage.key}Notes`] : ''}\n\nPlease confirm receipt and let us know if you have any questions.\n\nRegards,\n${company}`;
+  },
   reminder: (worker, job, order, stage, company) =>
     `Hello ${worker.name},\n\nReminder — *${stage.label}* for order ${order.number} is due ${formatDate(job[`${stage.key}Due`])}.\n\nPlease share the status update.\n\nThanks,\n${company}`,
 };
@@ -189,10 +194,27 @@ export function ProductionView({ data, setModal, settings, search, setSearch }) 
                 const worker = workerById(j[`${stage.key}WorkerId`]);
                 const overdue = isOverdue(j, idx);
                 const due = j[`${stage.key}Due`];
+
+                // Pull dimensions from the linked quote items (if any) — useful for the workshop
+                const linkedQuote = order?.quoteId ? data.quotes.find(q => q.id === order.quoteId) : null;
+                const items = (linkedQuote?.items || []).filter(it => num(it.widthIn) > 0 && num(it.heightIn) > 0);
+
                 return (
                   <div key={j.id} className={`kanban-card ${overdue ? 'overdue' : ''}`} onClick={() => setModal({ type: 'productionJob', data: j })}>
                     <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }} className="mono">{order?.number || '—'}</div>
                     <div style={{ fontSize: 12, color: '#2a2520', marginBottom: 6 }}>{customer?.name || '—'}</div>
+
+                    {items.length > 0 && (
+                      <div style={{ fontSize: 10, color: '#6b5d3f', marginBottom: 6, padding: '4px 6px', background: '#faf7f0', borderRadius: 3 }}>
+                        {items.slice(0, 2).map((it, idx2) => (
+                          <div key={idx2} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {formatSize(it.widthIn, it.heightIn)}{num(it.qty) > 1 ? ` × ${it.qty}` : ''}
+                          </div>
+                        ))}
+                        {items.length > 2 && <div style={{ color: '#8a7d5e', fontStyle: 'italic' }}>+{items.length - 2} more</div>}
+                      </div>
+                    )}
+
                     {worker ? (
                       <div style={{ fontSize: 11, color: '#6b5d3f', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
                         <Hammer size={10} /> {worker.name}
@@ -273,12 +295,17 @@ export function WorkerForm({ initial, onSave, onClose, busy }) {
 }
 
 // ============ PRODUCTION JOB FORM (the big one) ============
-export function ProductionJobForm({ initial, orders, customers, workers, settings, onSave, onClose, busy }) {
+export function ProductionJobForm({ initial, orders, customers, workers, quotes, settings, onSave, onClose, busy }) {
   const [f, setF] = useState(initial);
   const upd = (k, v) => setF(p => ({ ...p, [k]: v }));
   const order = orders.find(o => o.id === f.orderId);
   const customer = customers.find(c => c.id === order?.customerId);
   const activeWorkers = workers.filter(w => w.active !== false);
+
+  // Pull line items with measurements from the linked quote
+  const linkedQuote = order?.quoteId ? quotes.find(q => q.id === order.quoteId) : null;
+  const items = linkedQuote?.items || [];
+  const itemsWithDims = items.filter(it => num(it.widthIn) > 0 && num(it.heightIn) > 0);
 
   const markStageDone = (stageKey, done) => {
     upd(`${stageKey}DoneAt`, done ? new Date().toISOString() : null);
@@ -287,7 +314,7 @@ export function ProductionJobForm({ initial, orders, customers, workers, setting
   const stageWaLink = (stage) => {
     const worker = activeWorkers.find(w => w.id === f[`${stage.key}WorkerId`]);
     if (!worker?.phone) return null;
-    return waLink(worker.phone, waProdTemplates.assignment(worker, f, order, customer, stage, settings.company));
+    return waLink(worker.phone, waProdTemplates.assignment(worker, f, order, customer, stage, settings.company, items));
   };
 
   return (
@@ -314,6 +341,22 @@ export function ProductionJobForm({ initial, orders, customers, workers, setting
             <div className="mono" style={{ color: '#6b5d3f' }}>{formatINR(order.amount)}</div>
           </div>
           {order.deliveryDate && <div style={{ color: '#8b6914', marginTop: 4 }}>Delivery target: {formatDate(order.deliveryDate)}</div>}
+        </div>
+      )}
+
+      {itemsWithDims.length > 0 && (
+        <div style={{ padding: 12, background: '#faf7f0', borderRadius: 6, border: '1px solid #ebe3cd', marginBottom: 16 }}>
+          <div style={{ fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', color: '#8a7d5e', marginBottom: 8, fontWeight: 500 }}>
+            Measurements ({itemsWithDims.length} item{itemsWithDims.length > 1 ? 's' : ''})
+          </div>
+          {itemsWithDims.map((it, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, borderBottom: i < itemsWithDims.length - 1 ? '1px solid #ebe3cd' : 'none' }}>
+              <div style={{ flex: 1 }}>{it.desc || `Item ${i + 1}`}</div>
+              <div className="mono" style={{ color: '#6b5d3f' }}>
+                {formatSize(it.widthIn, it.heightIn)}{num(it.qty) > 1 ? ` × ${it.qty}` : ''}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

@@ -177,6 +177,46 @@ tr.clickable:hover { background: #faf7f0; }
   background: #fbf0ee;
 }
 
+/* Quote line item card */
+.line-item-card {
+  background: #fff;
+  border: 1px solid #ebe3cd;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+.dim-label {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #8a7d5e;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.dim-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.dim-row input {
+  width: 48px;
+  padding: 6px 4px;
+  border: 1px solid #e6dfca;
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: center;
+  font-family: ui-monospace, monospace;
+}
+.dim-row input:focus {
+  outline: none;
+  border-color: #8b6914;
+}
+.dim-sep {
+  color: #8a7d5e;
+  font-size: 13px;
+  font-weight: 500;
+}
+
 /* Toast */
 .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 18px; background: #2a2520; color: #f0e6c8; border-radius: 6px; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,0.2); z-index: 200; animation: slideUp 0.2s; }
 .toast.error { background: #a85b52; }
